@@ -37,7 +37,7 @@ def flatten(d, parent_key='', sep='__'):
             items.append((new_key, str(v) if type(v) is list else v))
     return dict(items)
         
-def persist_lines(block_blob_service, append_blob_service, lines):
+def persist_lines(block_blob_service, append_blob_service, blob_container_name, lines):
     state = None
     schemas = {}
     key_properties = {}
@@ -86,16 +86,16 @@ def persist_lines(block_blob_service, append_blob_service, lines):
                                     headers[o['stream']],
                                     extrasaction='ignore')
 
-            blobs = block_blob_service.list_blobs('trustpilot')
+            blobs = block_blob_service.list_blobs(blob_container_name)
             blob_names = [blob.name for blob in list(blobs)]
 
             if not o['stream'] + '.csv' in blob_names:
-                append_blob_service.create_blob('trustpilot', o['stream'] + '.csv')
+                append_blob_service.create_blob(blob_container_name, o['stream'] + '.csv')
                 writer.writeheader()
 
             writer.writerow(flattened_record)
 
-            append_blob_service.append_blob_from_text('trustpilot', o['stream'] + '.csv', csvfile.getvalue())
+            append_blob_service.append_blob_from_text(blob_container_name, o['stream'] + '.csv', csvfile.getvalue())
 
             state = None
         elif t == 'STATE':
@@ -157,8 +157,10 @@ def main():
 
     append_blob_service = AppendBlobService(config.get('account_name', None), config.get('account_key', None))
 
+    blob_container_name = config.get('container_name', None)
+
     input = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
-    state = persist_lines(block_blob_service, append_blob_service, input)
+    state = persist_lines(block_blob_service, append_blob_service, blob_container_name, input)
         
     emit_state(state)
     logger.debug("Exiting normally")
