@@ -15,6 +15,9 @@ import pkg_resources
 from jsonschema.validators import Draft4Validator
 import singer
 
+import csv
+from azure.storage.blob import BlockBlobService, AppendBlobService
+
 logger = singer.get_logger()
 
 def emit_state(state):
@@ -34,7 +37,7 @@ def flatten(d, parent_key='', sep='__'):
             items.append((new_key, str(v) if type(v) is list else v))
     return dict(items)
         
-def persist_lines(config, lines):
+def persist_lines(block_blob_service, append_blob_service, lines):
     state = None
     schemas = {}
     key_properties = {}
@@ -68,9 +71,31 @@ def persist_lines(config, lines):
             validators[o['stream']].validate(o['record'])
 
             # If the record needs to be flattened, uncomment this line
-            # flattened_record = flatten(o['record'])
+            flattened_record = flatten(o['record'])
             
             # TODO: Process Record message here..
+            # print(o['record'])
+
+            headers = {}
+
+            headers[o['stream']] = flattened_record.keys()
+
+            csvfile = io.StringIO()
+
+            writer = csv.DictWriter(csvfile,
+                                    headers[o['stream']],
+                                    extrasaction='ignore')
+
+            blobs = block_blob_service.list_blobs('trustpilot')
+            blob_names = [blob.name for blob in list(blobs)]
+
+            if not o['stream'] + '.csv' in blob_names:
+                append_blob_service.create_blob('trustpilot', o['stream'] + '.csv')
+                writer.writeheader()
+
+            writer.writerow(flattened_record)
+
+            append_blob_service.append_blob_from_text('trustpilot', o['stream'] + '.csv', csvfile.getvalue())
 
             state = None
         elif t == 'STATE':
@@ -128,8 +153,12 @@ def main():
                     'the config parameter "disable_collection" to true')
         threading.Thread(target=send_usage_stats).start()
 
+    block_blob_service = BlockBlobService(config.get('account_name', None), config.get('account_key', None))
+
+    append_blob_service = AppendBlobService(config.get('account_name', None), config.get('account_key', None))
+
     input = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
-    state = persist_lines(config, input)
+    state = persist_lines(block_blob_service, append_blob_service, input)
         
     emit_state(state)
     logger.debug("Exiting normally")

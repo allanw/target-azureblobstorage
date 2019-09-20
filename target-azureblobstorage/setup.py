@@ -2,7 +2,7 @@
 from setuptools import setup
 
 setup(
-    name="target-azureblobstorage"
+    name="target-azureblobstorage",
     version="0.1.0",
     description="Singer.io target for extracting data",
     author="Stitch",
