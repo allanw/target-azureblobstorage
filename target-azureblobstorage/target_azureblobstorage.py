@@ -15,7 +15,6 @@ import pkg_resources
 from jsonschema.validators import Draft4Validator
 import singer
 
-import csv
 from azure.storage.blob import BlockBlobService, AppendBlobService
 
 logger = singer.get_logger()
@@ -41,7 +40,6 @@ def persist_lines(block_blob_service, append_blob_service, blob_container_name, 
     state = None
     schemas = {}
     key_properties = {}
-    headers = {}
     validators = {}
     
     now = datetime.now().strftime('%Y%m%dT%H%M%S')
@@ -72,30 +70,16 @@ def persist_lines(block_blob_service, append_blob_service, blob_container_name, 
 
             # If the record needs to be flattened, uncomment this line
             flattened_record = flatten(o['record'])
-            
-            # TODO: Process Record message here..
-            # print(o['record'])
-
-            headers = {}
-
-            headers[o['stream']] = flattened_record.keys()
-
-            csvfile = io.StringIO()
-
-            writer = csv.DictWriter(csvfile,
-                                    headers[o['stream']],
-                                    extrasaction='ignore')
 
             blobs = block_blob_service.list_blobs(blob_container_name)
             blob_names = [blob.name for blob in list(blobs)]
 
-            if not o['stream'] + '.csv' in blob_names:
-                append_blob_service.create_blob(blob_container_name, o['stream'] + '.csv')
-                writer.writeheader()
+            filename = o['stream'] + '.json'
 
-            writer.writerow(flattened_record)
+            if not o['stream'] + '.json' in blob_names:
+                append_blob_service.create_blob(blob_container_name, filename)
 
-            append_blob_service.append_blob_from_text(blob_container_name, o['stream'] + '.csv', csvfile.getvalue())
+            append_blob_service.append_blob_from_text(blob_container_name, filename, json.dumps(o['record']) + ',')
 
             state = None
         elif t == 'STATE':
@@ -119,7 +103,7 @@ def persist_lines(block_blob_service, append_blob_service, blob_container_name, 
 
 def send_usage_stats():
     try:
-        version = pkg_resources.get_distribution('target-csv').version
+        version = pkg_resources.get_distribution('target-azureblobstorage').version
         conn = http.client.HTTPConnection('collector.singer.io', timeout=10)
         conn.connect()
         params = {
